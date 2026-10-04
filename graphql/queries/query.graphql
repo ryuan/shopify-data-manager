@@ -1,0 +1,390 @@
+# BULK OPERATION QUERY REMINDERS: 
+# Updated 5/13/24 per https://shopify.dev/docs/api/usage/bulk-operations/queries
+# 1) Maximum of five total connections in the query
+# 2) Connections must implement the Node interface
+# 3) The top-level node and nodes fields can't be used
+# 4) Maximum of two levels deep for nested connections (i.e. 'edges' should appear max 3 deep)
+
+{
+    # products(query: "product_type:'Sectionals' OR product_type:'Sofas' OR product_type:'Loveseats' OR product_type:'Futons' OR product_type:'Nightstands' OR product_type:'End Tables' OR product_type:'Coffee Tables' OR product_type:'Poufs' OR product_type:'Ottomans' OR product_type:'Dining Tables' OR product_type:'TV Stands' OR product_type:'Beds' OR product_type:'Dressers' OR product_type:'Sideboards' OR product_type:'Accent Chairs' OR product_type:'Chaise Lounges' OR product_type:'Bar Stools' OR product_type:'Accent Stools' OR product_type:'Benches' OR product_type:'Office Chairs' OR product_type:'Bar Carts'", sortKey: TITLE) {
+    # products(query: "product_type:'Accent Chairs' OR product_type:'Chaise Lounges' OR product_type:'Bar Stools' OR product_type:'Stools' OR product_type:'Benches' OR product_type:'Office Chairs'", sortKey: TITLE) {
+    # products(query: "product_type:'Table Lamps' OR product_type:'Floor Lamps' OR product_type:'Chandeliers' OR product_type:'Pendants' OR product_type:'Flush Mounts' OR product_type:'Wall Sconces'", sortKey: TITLE) {
+    # products(query: "metafields.specs.status:'Active' AND inventory_total:>5", sortKey: TITLE) {
+    # products(query: "has_only_default_variant:false", sortKey: TITLE) {
+    # products(query: "collection_id:447945572576", sortKey: TITLE) {
+    products(query: "(vendor:Safavieh OR vendor:Modway) AND product_type:'Benches' AND status:ACTIVE", sortKey: TITLE) {
+    # products(query: "(vendor:Safavieh OR vendor:Modway) AND status:ACTIVE", sortKey: TITLE) {
+    # products(query: "vendor:Safavieh AND (product_type:'Accent Stools' OR product_type:'End Tables' OR product_type:'Dressers' OR product_type:'Coat Racks' OR product_type:'Nightstands' OR product_type:'Storage Cabinets' OR product_type:'Wall Mirrors' OR product_type:'Floor Mirrors' OR product_type:'Outdoor Benches' OR product_type:'Poufs' OR product_type:'Artificial Plants' OR product_type:'Wreaths' OR product_type:'Baskets' OR product_type:'Planters' OR product_type:'Wine Racks' OR product_type:'Boxes' OR product_type:'Throw Pillows' OR product_type:'Decorative Objects' OR product_type:'Candle Holders' OR product_type:'Vases' OR product_type:'Bowls' OR product_type:'Trays' OR product_type:'Benches' OR product_type:'Shoe Racks' OR product_type:'Shoe Cabinets' OR product_type:'Wardrobes' OR product_type:'Magazine Racks' OR product_type:'Ladder Racks' OR product_type:'Console Tables' OR product_type:'Wall Hangings' OR product_type:'Throw Blankets' OR product_type:'Wall Accents' OR product_type:'Wall Shelves' OR product_type:'Wall Art')", sortKey: TITLE) {
+        edges {
+            node {
+                id
+                handle
+                title
+                vendor
+                productType
+                # category {
+                #     id
+                #     name
+                # }
+                # tags
+                status
+                # descriptionHtml
+                # totalInventory
+                # options {
+                #     id 
+                #     name
+                #     values
+                # }
+                variantsCount {
+                    count
+                }
+                mediaCount {
+                    count
+                }
+                # collections(query: "collection_type:custom", sortKey: TITLE) {
+                #     edges {
+                #       node {
+                #         id
+                #         title
+                #         templateSuffix
+                #       }
+                #     }
+                # }
+                mf_status: metafield(namespace: "specs", key: "status") {
+                    value
+                }
+                mf_quantity_in_set: metafield(namespace: "specs", key: "quantity_in_set") {
+                    value
+                }
+                mf_supplier_collection: metafield(namespace: "specs", key: "supplier_collection") {
+                    value
+                }
+                mf_custom_collection: metafield(namespace: "specs", key: "custom_collection") {
+                    value
+                }
+                # mf_highlights: metafield(namespace: "specs", key: "highlights") {
+                #     value
+                # }
+                # mf_cl_color: metafield(namespace: "catalog", key: "combined_listing_color") {
+                #     value
+                # }
+                # mf_cl_shape: metafield(namespace: "catalog", key: "combined_listing_shape") {
+                #     value
+                # }
+                # mf_taxonomy: metafield(namespace: "catalog", key: "taxonomy") {
+                #     value
+                # }
+                # mf_filter_color: metafield(namespace: "filter", key: "style") {
+                #     value
+                # }
+                # mf_filter_style: metafield(namespace: "filter", key: "style") {
+                #     value
+                # }
+                variants {
+                    edges {
+                        node {
+                            id
+                            # displayName
+                            sku
+                            # barcode
+                            price
+                            # compareAtPrice
+                            inventoryQuantity
+                            selectedOptions {
+                                name
+                                value
+                            }
+                            # inventoryItem {
+                            #     countryCodeOfOrigin
+                            #     measurement {
+                            #         weight {
+                            #             value
+                            #             unit
+                            #         }
+                            #     }
+                            # }
+                            unitPrice {
+                                amount
+                                currencyCode
+                            }
+                            showUnitPrice
+                            unitPriceMeasurement {
+                                quantityUnit
+                                quantityValue
+                                referenceUnit
+                                referenceValue
+                            }
+                            product {
+                                id
+                                title
+                                # handle
+                            }
+                            # media {
+                            #     edges {
+                            #         node {
+                            #             ... on MediaImage {
+                            #                 id
+                            #                 image {
+                            #                     # altText
+                            #                     url
+                            #                     # url(transform: {maxWidth: 512, maxHeight: 512})
+                            #                 }
+                            #             }
+                            #         }
+                            #     }
+                            # }
+                            # mf_weight_capacity: metafield(namespace: "specs", key: "weight_capacity") {
+                            #     value
+                            # }
+                            # mf_overall_dimension: metafield(namespace: "specs", key: "overall_dimension") {
+                            #     value
+                            # }
+                            # mf_other_dimension: metafield(namespace: "specs", key: "other_dimension") {
+                            #     value
+                            # }
+                            # mf_drawer_dimension: metafield(namespace: "specs", key: "drawer_dimension") {
+                            #     value
+                            # }
+                            # mf_inner_drawer_dimension: metafield(namespace: "specs", key: "inner_drawer_dimension") {
+                            #     value
+                            # }
+                            # mf_cabinet_door_dimension: metafield(namespace: "specs", key: "cabinet_door_dimension") {
+                            #     value
+                            # }
+                            # mf_inner_cabinet_dimension: metafield(namespace: "specs", key: "inner_cabinet_dimension") {
+                            #     value
+                            # }
+                            # mf_seat_dimension: metafield(namespace: "specs", key: "seat_dimension") {
+                            #     value
+                            # }
+                            # mf_seat_thickness: metafield(namespace: "specs", key: "seat_thickness") {
+                            #     value
+                            # }
+                            # mf_armrest_dimension: metafield(namespace: "specs", key: "armrest_dimension") {
+                            #     value
+                            # }
+                            # mf_seat_to_armrest_height: metafield(namespace: "specs", key: "seat_to_armrest_height") {
+                            #     value
+                            # }
+                            # mf_headboard_clearance_height: metafield(namespace: "specs", key: "headboard_clearance_height") {
+                            #     value
+                            # }
+                            # mf_under_bed_clearance_height: metafield(namespace: "specs", key: "under_bed_clearance_height") {
+                            #     value
+                            # }
+                            # mf_filter_price_per_item: metafield(namespace: "filter", key: "price_per_item") {
+                            #     value
+                            # }
+                            # mf_tv_size: metafield(namespace: "filter", key: "tv_size") {
+                            #     value
+                            # }
+                            # mf_filter_width: metafield(namespace: "filter", key: "width") {
+                            #     value
+                            # }
+                            # mf_filter_depth: metafield(namespace: "filter", key: "depth") {
+                            #     value
+                            # }
+                            # mf_filter_height: metafield(namespace: "filter", key: "height") {
+                            #     value
+                            # }
+                            # mf_filter_size: metafield(namespace: "filter", key: "size") {
+                            #     value
+                            # }
+                            # mf_filter_shape: metafield(namespace: "filter", key: "shape") {
+                            #     value
+                            # }
+                            # mf_filter_orientation: metafield(namespace: "filter", key: "orientation") {
+                            #     value
+                            # }
+                        }
+                    }
+                }
+                # media {
+                #     edges {
+                #         node {
+                #             # id
+                #             # status
+                #             # mediaErrors {
+                #             #     code
+                #             #     details
+                #             #     message
+                #             # }
+                #             ... on MediaImage {
+                #                 id
+                #                 image {
+                #                     # altText
+                #                     url
+                #                     # url(transform: {maxWidth: 512, maxHeight: 512})
+                #                 }
+                #             }
+                #         }
+                #     }
+                # }
+            }
+        }
+    }
+    # productVariants(query: "product_type:'Dining Chairs' OR product_type:'Sofas' OR product_type:'Futons' OR product_type:'Loveseats' OR product_type:'Sectionals'", sortKey: FULL_TITLE) {
+    #     edges {
+    #         node {
+    #             id
+    #             sku
+    #             displayName
+    #             # price
+    #             # selectedOptions {
+    #             #     name
+    #             #     value
+    #             #     # optionValue {
+    #             #     #     id
+    #             #     #     name
+    #             #     # }
+    #             # }
+    #             mf_seat_depth: metafield(namespace: "specs", key: "seat_depth") {
+    #                 # id
+    #                 # key
+    #                 value
+    #             }
+    #             mf_seat_height: metafield(namespace: "specs", key: "seat_height") {
+    #                 # id
+    #                 # key
+    #                 value
+    #             }
+    #             mf_seat_back_height: metafield(namespace: "specs", key: "seat_back_height") {
+    #                 # id
+    #                 # key
+    #                 value
+    #             }
+    #             product {
+    #                 id
+    #                 title
+    #                 vendor
+    #                 # status
+    #                 productType
+    #                 # options {
+    #                 #     id
+    #                 #     name
+    #                 #     values
+    #                 # }
+    #                 # variantsCount {
+    #                 #     count
+    #                 # }
+    #                 # descriptionHtml
+    #                 # featuredImage {
+    #                 #     url
+    #                 # }
+    #                 metafield(namespace: "specs", key: "status") {
+    #                     # id
+    #                     # key
+    #                     value
+    #                 }
+    #             }
+    #             # metafields(keys: ["filter.material"]) {
+    #             #     edges {
+    #             #         node {
+    #             #             id
+    #             #             namespace
+    #             #             key
+    #             #             value
+    #             #         }
+    #             #     }
+    #             # }
+    #         }
+    #     }
+    # }
+    # collections(query: "collection_type:smart", sortKey: TITLE) {
+    #     edges {
+    #         node {
+    #             id
+    #             title
+    #             handle
+    #             ruleSet {
+    #                 appliedDisjunctively
+    #                 rules {
+    #                     column
+    #                     condition
+    #                     conditionObject {
+    #                         ... on CollectionRuleMetafieldCondition {
+    #                             metafieldDefinition {
+    #                                 id
+    #                                 name
+    #                                 namespace
+    #                                 key
+    #                             }
+    #                         }
+    #                     }
+    #                     relation
+    #                 }
+    #             }
+    #             sortOrder
+    #             mf_filtered_collections: metafield(namespace: "filter", key: "filtered_collections") {
+    #                 id
+    #                 namespace
+    #                 key
+    #                 type
+    #                 value
+    #             }
+    #             mf_base_collection: metafield(namespace: "filter", key: "base_collection") {
+    #                 id
+    #                 namespace
+    #                 key
+    #                 type
+    #                 value
+    #             }
+    #             # mf_applied_filter_value_label: metafield(namespace: "filter", key: "applied_filter_value_label") {
+    #             #     id
+    #             #     namespace
+    #             #     key
+    #             #     type
+    #             #     value
+    #             # }
+    #             # mf_applied_filter_sort_order: metafield(namespace: "filter", key: "applied_filter_sort_order") {
+    #             #     id
+    #             #     namespace
+    #             #     key
+    #             #     type
+    #             #     value
+    #             # }
+    #         }
+    #     }
+    # }
+    # metafieldDefinition(id: "gid://shopify/MetafieldDefinition/28228550880") {
+    #     metafields {
+    #         edges {
+    #             node {
+    #                 id
+    #                 namespace
+    #                 key
+    #                 value
+    #                 owner {
+    #                     # ... on Product {
+    #                     #     id
+    #                     #     title
+    #                     #     productType
+    #                     # }
+    #                     # ... on ProductVariant {
+    #                     #     id
+    #                     #     sku
+    #                     #     displayName
+    #                     #     selectedOptions {
+    #                     #         name
+    #                     #         value
+    #                     #     }
+    #                     #     product {
+    #                     #         id
+    #                     #         title
+    #                     #         productType
+    #                     #     }
+    #                     # }
+    #                 }
+    #             }
+    #         }
+    #     }
+    # }
+    # locations {
+    #     edges {
+    #         node {
+    #             id
+    #             name
+    #         }
+    #     }
+    # }
+}

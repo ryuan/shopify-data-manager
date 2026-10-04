@@ -1,0 +1,14 @@
+.env
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.DS_Store
+
+source/*
+!source/.gitkeep
+queries/*
+!queries/.gitkeep
+working/*
+!working/.gitkeep
+mutations/*
+!mutations/.gitkeep

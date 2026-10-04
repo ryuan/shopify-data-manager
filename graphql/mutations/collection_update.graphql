@@ -1,0 +1,7 @@
+mutation CollectionUpdate($input: CollectionInput!) {
+  collectionUpdate(input: $input) {
+    collection { id }
+    job { id done }
+    userErrors { field message }
+  }
+}

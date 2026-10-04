@@ -1,0 +1,16 @@
+mutation ProductVariantsBulkCreate(
+  $productId: ID!
+  $variants: [ProductVariantsBulkInput!]!
+  $media: [CreateMediaInput!]
+  $strategy: ProductVariantsBulkCreateStrategy
+) {
+  productVariantsBulkCreate(
+    productId: $productId
+    variants: $variants
+    media: $media
+    strategy: $strategy
+  ) {
+    productVariants { id }
+    userErrors { field message }
+  }
+}
