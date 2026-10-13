@@ -1,4 +1,9 @@
+# Local credentials (keep the public setup template).
 .env
+.env.*
+!.env.example
+.venv/
+venv/
 __pycache__/
 .pytest_cache/
 *.py[cod]
@@ -12,3 +17,7 @@ working/*
 !working/.gitkeep
 mutations/*
 !mutations/.gitkeep
+
+# Local query definitions; publish only the generic example.
+/graphql/queries/*
+!/graphql/queries/sample.graphql

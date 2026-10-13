@@ -29,6 +29,20 @@ query ProductMedia($ids: [ID!]!) {
 """
 
 
+COLLECTION_ORDER = r"""
+query CollectionOrder($id: ID!, $after: String) {
+  collection(id: $id) {
+    id
+    sortOrder
+    products(first: 250, after: $after, sortKey: MANUAL) {
+      edges { node { id } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"""
+
+
 class RelationshipResolver:
     """Resolve and validate Shopify resource relationships used by mutation workflows."""
 
@@ -147,3 +161,45 @@ class RelationshipResolver:
             if product_ids:
                 candidates[resource_id] = product_ids
         return candidates
+
+    def collection_contents(self, collection_ids: Iterable[str]) -> dict[str, dict]:
+        """Fetch complete live manual ordering for collection-reorder preflight.
+
+        Paginate rather than assuming all products fit in the first 250.
+        """
+        result: dict[str, dict] = {}
+        for collection_id in self._unique(collection_ids):
+            after = None
+            ordered: list[str] = []
+            seen_cursors: set[str] = set()
+            while True:
+                data = self.client.execute(COLLECTION_ORDER, {"id": collection_id, "after": after})
+                collection = data.get("collection")
+                if not collection:
+                    break
+                connection = collection.get("products") or {}
+                ordered.extend(
+                    edge["node"]["id"] for edge in connection.get("edges") or []
+                    if edge and edge.get("node") and edge["node"].get("id")
+                )
+                page = connection.get("pageInfo") or {}
+                if not page.get("hasNextPage"):
+                    result[collection_id] = {"sortOrder": collection.get("sortOrder"), "products": ordered}
+                    break
+                cursor = page.get("endCursor")
+                if not cursor or cursor in seen_cursors:
+                    raise RuntimeError(f"Collection '{collection_id}' pagination did not advance.")
+                seen_cursors.add(cursor)
+                after = cursor
+        return result
+
+    @classmethod
+    def collection_candidates_from_query(
+        cls, path: Path, product_ids: set[str]
+    ) -> dict[str, set[str]]:
+        candidates = cls._parent_sets_from_query(path, product_ids)
+        return {
+            product_id: {parent for parent in parents if parent.startswith("gid://shopify/Collection/")}
+            for product_id, parents in candidates.items()
+            if any(parent.startswith("gid://shopify/Collection/") for parent in parents)
+        }

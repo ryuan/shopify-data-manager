@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from config import Settings
 import app.shopify.client as client_module
@@ -47,6 +50,11 @@ def test_client_uses_shopifyapp_background_graphql(monkeypatch, tmp_path):
     assert kwargs["access_token"] == "token"
     assert kwargs["api_version"] == "2026-04"
     assert kwargs["invalid_token_response"] is None
+
+
+def test_settings_require_explicit_api_version(tmp_path):
+    with pytest.raises(RuntimeError, match="SHOPIFY_API_VERSION"):
+        replace(settings(tmp_path), api_version="").validate()
 
 
 class FakeBulkClient:

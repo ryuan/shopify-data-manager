@@ -54,7 +54,7 @@ Bulk queries are independent from mutation workflows and are retained under `que
 - Clear distinction between blank cells, explicit clear values, and real falsy values such as `0` and `FALSE`.
 - Live validation of existing Shopify resource IDs before mutation generation.
 - Variant-to-Product and MediaImage-to-Product relationship validation.
-- Optional `productId` helper column when parent Product context is already known.
+- Optional `parentId` helper column for Product or Collection context; legacy `productId` remains supported for Product parents.
 - Saved-query relationship resolution only when Shopify cannot provide the required relationship directly.
 - Safe working mutation previews with file hashes before execution.
 - Persistent query and mutation histories with timestamped artifacts.
@@ -89,13 +89,15 @@ Then populate `.env`:
 
 ```env
 SHOPIFY_SHOP=your-store.myshopify.com
-SHOPIFY_API_VERSION=2026-04
+SHOPIFY_API_VERSION=2026-10
 SHOPIFY_ACCESS_TOKEN=your_admin_api_access_token
 SHOPIFY_API_KEY=your_app_api_key
 SHOPIFY_API_SECRET=your_app_api_secret
 ```
 
 The program uses Shopify's maintained `shopifyapp` Python package for Admin GraphQL requests.
+
+Set `SHOPIFY_API_VERSION` explicitly. The update workflow requires Shopify's new collections schema (`2026-07` or later).
 
 ### 3. Add source/query files
 
@@ -110,6 +112,8 @@ Reusable Shopify bulk-query definitions live in:
 ```text
 graphql/queries/
 ```
+
+Copy `graphql/queries/sample.graphql` to create your own query. Custom queries, credentials, source files, and generated artifacts are ignored by Git; only the sample query is included in the repository.
 
 ### 4. Run the program
 
@@ -152,14 +156,17 @@ Variant positions                    -> productVariantsBulkReorder
 MediaImage fields                    -> fileUpdate
 Media positions                      -> productReorderMedia
 Collection fields / metafields       -> collectionUpdate
+Product positions in Collections     -> collectionReorderProducts
 Metafield clears                     -> metafieldsDelete
 ```
 
 Normal metafield values remain inside the owning Product, Variant, or Collection mutation rather than being routed through `metafieldsSet`.
 
+Collection product moves are grouped into one mutation per Collection and sorted by ascending `newPosition`; Shopify applies moves sequentially, so later moves may shift products moved earlier.
+
 ### Create Variants for Existing Products
 
-The source key is `sku`, with `productId` identifying the existing destination Product.
+The source key is `sku`, with `parentId` identifying the existing destination Product. Existing files using `productId` are also accepted.
 
 Rows are grouped by Product and created through `productVariantsBulkCreate` using `PRESERVE_STANDALONE_VARIANT`. Destination Product IDs are validated before mutation generation.
 
@@ -181,9 +188,11 @@ Blank and explicit-empty values have different meanings:
 
 Falsy values such as `0` and `FALSE` remain real values. Primitive and structured values are converted according to the destination Shopify GraphQL input type rather than guessed globally from the spreadsheet text.
 
-Some Shopify mutations require a parent Product ID even when the source row represents a child resource.
+Some Shopify mutations require parent context even when the source row represents a child resource.
 
-`productId` can be supplied as a helper column for ProductVariant and MediaImage rows. Variant relationships can also be resolved and validated directly from current Shopify data. MediaImage relationships use source `productId` when available and request a saved bulk-query result only when Product context cannot otherwise be resolved.
+`parentId` can supply a Product GID for ProductVariant and MediaImage rows, or a Collection GID for Product rows being reordered within a Collection. The legacy `productId` helper is still accepted for Product parents; if both helpers are populated, they must agree.
+
+Variant relationships can also be resolved and validated directly from current Shopify data. Media and collection reordering request a saved relationship query when parent context is not supplied.
 
 When source data, saved-query relationships, and current Shopify data provide overlapping relationship information, the program uses that information for validation. Critical conflicts or ambiguous relationships prevent mutation generation.
 
@@ -225,6 +234,8 @@ When execution begins, the program verifies the working-file hashes and copies t
 
 Executed mutation records contain the source file, GraphQL operations, JSONL inputs, downloaded results, manifest, and summary. Failed executions are retained as well as successful ones.
 
+Shopify errors mark the execution as failed and stop subsequent mutation types; changes already applied are not rolled back.
+
 If the local program is interrupted while Shopify may still be processing a BulkOperation, the Shopify operation ID is already stored in the manifest. The program can resume checking that operation later rather than creating a duplicate mutation.
 
 `summary.txt` preserves Shopify's returned errors and, where possible, maps errors from grouped mutation inputs back to the originating XLSX/CSV row.
@@ -253,7 +264,8 @@ app/
         create_variants.py
         create_products.py
 
-graphql/                # reusable query and mutation definitions
+graphql/queries/        # public sample.graphql and ignored local query definitions
+graphql/mutations/      # required reusable mutation definitions
 source/                 # current mutation source XLSX/CSV
 queries/                # persistent bulk-query artifacts
 working/                # current replaceable mutation preview

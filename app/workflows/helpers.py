@@ -159,3 +159,44 @@ def resolve_creation_metafield_owners(
                 f"Metafield '{column}' has neither a PRODUCT nor PRODUCTVARIANT definition."
             )
     return result
+
+
+def source_parent_id(
+    row: SourceRow, expected_type: str, plan: MutationPlan, *, required: bool = False,
+) -> str | None:
+    """Parent-context source helper (not a GraphQL input field).
+
+    Prefer parentId; accept old productId source columns for existing files.
+    The GraphQL mutation argument may still be named productId.
+    """
+    new = parse_cell(row.values.get("parentId"))
+    legacy = parse_cell(row.values.get("productId"))
+    if new.state == CellState.CLEAR or legacy.state == CellState.CLEAR:
+        plan.errors.append(
+            f"Source row {row.row_number}: parent helper cannot be cleared; "
+            "leave parentId blank to resolve the relationship."
+        )
+        return None
+    if legacy.state == CellState.VALUE and expected_type != "Product":
+        plan.errors.append(f"Source row {row.row_number}: productId helper only supports Product parents.")
+        return None
+    if new.state == CellState.VALUE and legacy.state == CellState.VALUE:
+        if str(new.value).strip() != str(legacy.value).strip():
+            plan.errors.append(
+                f"Source row {row.row_number}: parentId and productId refer to different parents."
+            )
+            return None
+    selected = new if new.state == CellState.VALUE else legacy
+    if selected.state != CellState.VALUE:
+        if required:
+            plan.errors.append(
+                f"Source row {row.row_number}: parentId is required (expected {expected_type} GID)."
+            )
+        return None
+    parent = str(selected.value).strip()
+    if resource_type(parent) != expected_type:
+        plan.errors.append(
+            f"Source row {row.row_number}: invalid parentId '{parent}'; expected {expected_type} GID."
+        )
+        return None
+    return parent

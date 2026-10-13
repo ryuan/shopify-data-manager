@@ -96,13 +96,14 @@ def main() -> None:
 
                 elif action == 1:
                     ws.clear_working()
-                    source = load_source(settings.source_dir, expected_key="id")
+                    source = load_source(settings.source_dir, expected_key="id", allow_collection_reorder_duplicates=True)
                     planner = UpdateResourcesPlanner(schema_service, relationship_service)
                     media_ids = planner.relationship_requirements(source)
+                    collection_ids = planner.collection_relationship_requirements(source)
                     relationship_query = None
-                    if media_ids:
+                    if media_ids or collection_ids:
                         relationship_query = ws.select_relationship_query(
-                            media_ids, relationship_service
+                            media_ids, relationship_service, collection_product_ids=collection_ids
                         )
                     plan = planner.plan(source, relationship_query)
                     handle_plan(plan, ws)

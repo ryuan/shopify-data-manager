@@ -89,10 +89,18 @@ def coerce_cell(cell: ParsedCell, type_ref: dict[str, Any], field: str) -> Any:
         raise ValueError("coerce_cell should only receive VALUE or CLEAR cells.")
 
     value = cell.value
+    kind, name = base_type(type_ref)
+    if kind == "SCALAR" and name == "UnsignedInt64":
+        raw = str(value).strip()
+        if not raw.isascii() or not raw.isdecimal():
+            raise ValueError(f"Field '{field}' expects an unsigned 64-bit integer: {raw}")
+        number = int(raw)
+        if number > 2**64 - 1:
+            raise ValueError(f"Field '{field}' exceeds the unsigned 64-bit integer maximum.")
+        return str(number)
     if not isinstance(value, str):
         return value
     stripped = value.strip()
-    kind, name = base_type(type_ref)
 
     if is_list_type(type_ref):
         try:

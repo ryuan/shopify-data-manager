@@ -8,7 +8,7 @@ from app.source import CellState, SourceData, parse_cell
 from app.shopify.relationships import RelationshipResolver
 from app.shopify.schema import SchemaInspector, coerce_cell
 from app.workflows.helpers import (
-    MutationPlan, is_metafield_column, metafield_input, read_existing_inventory_item, source_ref
+    MutationPlan, is_metafield_column, metafield_input, read_existing_inventory_item, source_ref, source_parent_id
 )
 
 
@@ -27,17 +27,8 @@ class CreateVariantsPlanner:
         seen_media: dict[str, set[str]] = defaultdict(set)
 
         for row in source.rows:
-            product_cell = parse_cell(row.values.get("productId"))
-            if product_cell.state != CellState.VALUE:
-                plan.errors.append(
-                    f"Source row {row.row_number}: 'productId' is required when creating variants."
-                )
-                continue
-            product_id = str(product_cell.value).strip()
-            if not product_id.startswith("gid://shopify/Product/"):
-                plan.errors.append(
-                    f"Source row {row.row_number}: invalid productId '{product_id}'."
-                )
+            product_id = source_parent_id(row, "Product", plan, required=True)
+            if not product_id:
                 continue
 
             variant: dict[str, Any] = {}
@@ -53,7 +44,7 @@ class CreateVariantsPlanner:
                 )
 
             for column, raw in row.values.items():
-                if column in {"productId", "media", "inventoryItem"}:
+                if column in {"parentId", "productId", "media", "inventoryItem"}:
                     continue
                 cell = parse_cell(raw)
                 if cell.state == CellState.UNCHANGED:
@@ -118,7 +109,7 @@ class CreateVariantsPlanner:
                     elif context.get("type") != "Product":
                         first_row = rows_for_product[0]
                         plan.errors.append(
-                            f"Source row {first_row.row_number}: productId '{product_id}' resolved as "
+                            f"Source row {first_row.row_number}: parentId '{product_id}' resolved as "
                             f"{context.get('type')}, not Product."
                         )
             except Exception as exc:

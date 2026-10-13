@@ -148,8 +148,8 @@ def test_summary_keeps_shopify_error_and_adds_source_row(tmp_path):
     assert "Shopify field: product.title" in summary
     assert "Error: Title can't be blank" in summary
     manifest = json.loads(next(permanent.glob("manifest_*.json")).read_text())
-    assert manifest["status"] == "COMPLETED"
-    assert manifest["artifacts"]["product_update"]["status"] == "COMPLETED"
+    assert manifest["status"] == "FAILED"
+    assert manifest["artifacts"]["product_update"]["status"] == "FAILED"
     assert len(manifest["artifacts"]["product_update"]["errors"]) == 1
 
 
@@ -272,3 +272,28 @@ def test_true_bulk_failure_stops_later_artifacts(tmp_path):
     assert manifest["artifacts"]["product_update"]["status"] == "FAILED"
     assert manifest["artifacts"]["collection_update"]["status"] == "PENDING"
     assert bulk.run_calls == 1
+
+
+def test_graphql_validation_errors_stop_later_mutations_and_mark_failed(tmp_path):
+    settings = make_settings(tmp_path)
+    prepare_graphql(settings)
+    (settings.mutation_definitions_dir / "collection_update.graphql").write_text(
+        "mutation CollectionUpdate($input: CollectionInput!) { collectionUpdate(input:$input){userErrors{field message}} }"
+    )
+    plan = make_plan(tmp_path)
+    plan.mutations["collection_update"] = [{"input": {"id": "gid://shopify/Collection/2"}}]
+    plan.provenance["collection_update"] = [{"sourceRows": [{
+        "row": 3, "id": "gid://shopify/Collection/2"
+    }]}]
+    bulk = FakeBulk(errors=[{
+        "line": 0, "field": "query", "message": "Invalid UnsignedInt64: must be encoded as a string"
+    }])
+    workspace = Workspace(settings, bulk)
+    workspace.write_working(plan)
+    permanent = workspace.execute_working()
+    manifest = json.loads(next(permanent.glob("manifest_*.json")).read_text())
+    assert manifest["status"] == "FAILED"
+    assert manifest["artifacts"]["product_update"]["status"] == "FAILED"
+    assert manifest["artifacts"]["collection_update"]["status"] == "PENDING"
+    assert bulk.run_calls == 1
+    assert "Status: FAILED" in next(permanent.glob("summary_*.txt")).read_text()

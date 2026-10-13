@@ -243,7 +243,7 @@ class Workspace:
                 info.update(
                     {
                         "bulkOperationId": result.operation_id,
-                        "status": "COMPLETED" if result.completed else "FAILED",
+                        "status": "COMPLETED" if result.completed and not result.errors else "FAILED",
                         "shopifyStatus": result.shopify_status,
                         "operation": result.operation,
                         "result": result.result_path.name if result.result_path else None,
@@ -255,13 +255,13 @@ class Workspace:
                 write_json(manifest_path, manifest)
                 self._write_execution_summary(summary_path, manifest)
 
-                if result.completed:
-                    print(
-                        f"{name} completed: {info['lines']} input line(s), "
-                        f"{len(result.errors)} error(s)"
-                    )
+                if info["status"] == "COMPLETED":
+                    print(f"{name} completed: {info['lines']} input line(s), 0 errors")
                 else:
-                    print(f"{name} failed with Shopify status {result.shopify_status}.")
+                    print(
+                        f"{name} failed: Shopify bulk status {result.shopify_status}; "
+                        f"{len(result.errors)} GraphQL error(s)."
+                    )
                     manifest["status"] = "FAILED"
                     break
 
@@ -395,7 +395,9 @@ class Workspace:
         self,
         media_ids: set[str],
         resolver: RelationshipResolver,
+        collection_product_ids: set[str] | None = None,
     ) -> Path:
+        collection_product_ids = collection_product_ids or set()
         candidates = sorted(
             self.settings.queries_dir.glob("*/result_*.jsonl"),
             key=lambda p: p.parent.name,
@@ -403,7 +405,7 @@ class Workspace:
         )
         if not candidates:
             raise FileNotFoundError(
-                "Media reordering requires a saved query result, but no completed query results exist in 'queries/'."
+                "Relationship resolution requires a saved query result, but none exist in 'queries/'."
             )
 
         remaining = list(candidates)
@@ -426,7 +428,14 @@ class Workspace:
                 for media_id in media_ids
                 if len(candidates_by_media.get(media_id, set())) > 1
             }
-            if not missing and not ambiguous:
+            collection_matches = resolver.collection_candidates_from_query(selected, collection_product_ids) if collection_product_ids else {}
+            missing_collections = sorted(gid for gid in collection_product_ids if not collection_matches.get(gid))
+            ambiguous_collections = {
+                gid: collection_matches[gid]
+                for gid in collection_product_ids
+                if len(collection_matches.get(gid, set())) > 1
+            }
+            if not missing and not ambiguous and not missing_collections and not ambiguous_collections:
                 return selected
 
             if missing:
@@ -437,14 +446,23 @@ class Workspace:
                 print("Selected query result maps MediaImage ID(s) to multiple Products:")
                 for gid, products in sorted(ambiguous.items()):
                     print(f"  - {gid}: {', '.join(sorted(products))}")
-                print("Supply productId in the source to disambiguate these MediaImage rows.")
+                print("Supply parentId in the source to disambiguate these MediaImage rows.")
+            if missing_collections:
+                print("Selected query is missing Collection -> Product relationship(s):")
+                for gid in missing_collections:
+                    print(f"  - {gid}")
+            if ambiguous_collections:
+                print("Selected query maps Product ID(s) to multiple Collections:")
+                for gid, parents in sorted(ambiguous_collections.items()):
+                    print(f"  - {gid}: {', '.join(sorted(parents))}")
+                print("Supply parentId in the source to disambiguate these Product rows.")
             remaining.remove(selected)
             if remaining:
                 print("Select another saved query result, or press Ctrl-C to cancel this action.")
 
         raise RuntimeError(
-            "None of the saved query results provide one unambiguous Product relationship "
-            "for every MediaImage that requires relationship resolution."
+            "None of the saved query results provide one unambiguous parent relationship "
+            "for every resource requiring query-based relationship resolution."
         )
 
     # ----- Display -----

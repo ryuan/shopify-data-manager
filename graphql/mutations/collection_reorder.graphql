@@ -1,0 +1,6 @@
+mutation collectionReorderProducts($id: ID!, $moves: [MoveInput!]!) {
+  collectionReorderProducts(id: $id, moves: $moves) {
+    job { id done }
+    userErrors { field message }
+  }
+}

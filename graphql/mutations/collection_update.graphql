@@ -1,5 +1,5 @@
-mutation CollectionUpdate($input: CollectionInput!) {
-  collectionUpdate(input: $input) {
+mutation CollectionUpdate($collection: CollectionUpdateInput!) {
+  collectionUpdate(collection: $collection) {
     collection { id }
     job { id done }
     userErrors { field message }

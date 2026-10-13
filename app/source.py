@@ -80,7 +80,7 @@ def _read_dataframe(path: Path) -> pd.DataFrame:
     return df
 
 
-def load_source(source_dir: Path, expected_key: str) -> SourceData:
+def load_source(source_dir: Path, expected_key: str, *, allow_collection_reorder_duplicates: bool = False) -> SourceData:
     files = sorted(
         [p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() in {".xlsx", ".csv"}],
         key=lambda p: p.name.lower(),
@@ -99,6 +99,7 @@ def load_source(source_dir: Path, expected_key: str) -> SourceData:
 
     rows: list[SourceRow] = []
     seen: dict[str, int] = {}
+    seen_reorders: set[tuple[str, str]] = set()
     for idx, record in df.iterrows():
         row_number = int(idx) + 2
         key_cell = parse_cell(record[key_column])
@@ -115,10 +116,34 @@ def load_source(source_dir: Path, expected_key: str) -> SourceData:
             raise ValueError(f"Source row {row_number} cannot clear its key column '{expected_key}'.")
         key = str(key_cell.value).strip()
         if key in seen:
-            raise ValueError(
-                f"Duplicate '{expected_key}' value '{key}' on source rows {seen[key]} and {row_number}."
-            )
-        seen[key] = row_number
+            # Multiple collections can independently position the same Product. Only
+            # allow duplicate keys for unambiguous, explicit, reorder-only rows.
+            original = next(r for r in rows if r.key == key)
+            def reorder_only(values):
+                active = {
+                    name for name, value in values.items()
+                    if parse_cell(value).state != CellState.UNCHANGED
+                }
+                return active == {"newPosition", "parentId"}
+            current_values = {str(col): record[col] for col in df.columns if col != key_column}
+            parent = str(parse_cell(current_values.get("parentId")).value or "").strip()
+            first_parent = str(parse_cell(original.values.get("parentId")).value or "").strip()
+            if not (
+                allow_collection_reorder_duplicates and key.startswith("gid://shopify/Product/")
+                and parent.startswith("gid://shopify/Collection/")
+                and first_parent.startswith("gid://shopify/Collection/")
+                and reorder_only(current_values) and reorder_only(original.values)
+                and (key, parent) not in seen_reorders
+                and parent != first_parent
+            ):
+                raise ValueError(
+                    f"Duplicate '{expected_key}' value '{key}' on source rows {seen[key]} and {row_number}. "
+                    "Repeated Product IDs require distinct parentId Collections and reorder-only rows."
+                )
+            seen_reorders.add((key, first_parent))
+            seen_reorders.add((key, parent))
+        else:
+            seen[key] = row_number
         rows.append(
             SourceRow(
                 row_number=row_number,

@@ -23,8 +23,15 @@ class FakeSchema:
             "ProductVariantsBulkInput": {"id": scalar("ID"), "price": scalar("Decimal"), "metafields": list_of("MetafieldInput")},
             "ProductVariantPositionInput": {"id": scalar("ID"), "position": scalar("Int")},
             "FileUpdateInput": {"id": scalar("ID"), "alt": scalar()},
-            "MoveInput": {"id": scalar("ID"), "newPosition": scalar("Int")},
-            "CollectionInput": {"id": scalar("ID"), "templateSuffix": scalar(), "metafields": list_of("MetafieldInput")},
+            "MoveInput": {"id": scalar("ID"), "newPosition": scalar("UnsignedInt64")},
+            "CollectionUpdateInput": {
+                "id": scalar("ID"),
+                "templateSuffix": scalar(),
+                "metafields": list_of("MetafieldInput"),
+                "sourcesToCreate": list_of("CollectionCreateSourceTargetInput"),
+                "sourcesToDelete": list_of("ID"),
+                "sourcesToUpdate": list_of("CollectionUpdateSourceTargetInput"),
+            },
         }[name]
 
     def metafield_definition(self, owner_type, namespace, key):
@@ -57,6 +64,16 @@ class FakeRelationships:
         return {
             gid: {"gid://shopify/MediaImage/30"}
             for gid in product_ids
+        }
+
+    def collection_contents(self, collection_ids):
+        return {
+            gid: {"sortOrder": "MANUAL", "products": [
+                "gid://shopify/Product/101",
+                "gid://shopify/Product/102",
+                "gid://shopify/Product/103",
+            ]}
+            for gid in collection_ids
         }
 
 
@@ -116,7 +133,7 @@ def test_mixed_resources_group_only_when_shopify_requires_parent():
     assert plan.mutations["variant_update"][0]["variants"][0]["id"] == "gid://shopify/ProductVariant/20"
     assert plan.mutations["file_update"] == [{"files": [{"alt": "Front", "id": "gid://shopify/MediaImage/30"}]}]
     assert plan.mutations["media_reorder"][0]["id"] == "gid://shopify/Product/10"
-    assert plan.mutations["collection_update"] == [{"input": {"templateSuffix": "custom", "id": "gid://shopify/Collection/40"}}]
+    assert plan.mutations["collection_update"] == [{"collection": {"templateSuffix": "custom", "id": "gid://shopify/Collection/40"}}]
 
 
 def test_variant_flat_sku_routes_into_inventory_item_when_shopify_nests_sku():
@@ -185,7 +202,7 @@ def test_media_product_id_helper_avoids_query_and_is_live_validated():
     assert plan.mutations["media_reorder"] == [
         {
             "id": "gid://shopify/Product/10",
-            "moves": [{"newPosition": 0, "id": "gid://shopify/MediaImage/30"}],
+            "moves": [{"newPosition": "0", "id": "gid://shopify/MediaImage/30"}],
         }
     ]
 
@@ -256,3 +273,84 @@ def test_missing_live_key_id_is_preflight_error():
     )
     plan = UpdateResourcesPlanner(FakeSchema(), MissingRelationships()).plan(source)
     assert any("does not exist or is not accessible" in error for error in plan.errors)
+
+
+def test_collection_sources_to_update():
+    sources = [
+        {
+            "condition": {
+                "id": "gid://shopify/CollectionConditionsSource/1",
+                "inclusion": {
+                    "conditionsToCreate": [
+                        {
+                            "productType": {
+                                "relation": "EQUALS",
+                                "values": ["Accent Chairs", "Chaise Lounges"],
+                                "matchType": "ANY",
+                            }
+                        }
+                    ]
+                },
+            }
+        }
+    ]
+
+    source = make_source(
+        [
+            SourceRow(
+                2,
+                "gid://shopify/Collection/40",
+                {"sourcesToUpdate": json.dumps(sources)},
+            )
+        ],
+        ["sourcesToUpdate"],
+    )
+
+    plan = UpdateResourcesPlanner(FakeSchema(), FakeRelationships()).plan(source)
+
+    assert not plan.errors
+    assert plan.mutations["collection_update"] == [
+        {
+            "collection": {
+                "sourcesToUpdate": sources,
+                "id": "gid://shopify/Collection/40",
+            }
+        }
+    ]
+
+
+def test_collection_reorder_preserves_introspected_type_in_json_variables():
+    collection = "gid://shopify/Collection/28943913"
+    source = make_source([
+        SourceRow(2, "gid://shopify/Product/102", {"newPosition": "0", "parentId": collection}),
+        SourceRow(3, "gid://shopify/Product/103", {"newPosition": "1", "parentId": collection}),
+    ], ["newPosition", "parentId"])
+    plan = UpdateResourcesPlanner(FakeSchema(), FakeRelationships()).plan(source)
+    assert not plan.errors, plan.errors
+    moves = plan.mutations["collection_reorder"][0]["moves"]
+    assert [m["newPosition"] for m in moves] == ["0", "1"]
+    encoded = json.loads(json.dumps(plan.mutations["collection_reorder"][0]))
+    assert [m["newPosition"] for m in encoded["moves"]] == ["0", "1"]
+
+
+def test_collection_reorder_sorts_moves_and_keeps_sequential_position_semantics():
+    collection = "gid://shopify/Collection/1"
+    first, second, third = [f"gid://shopify/Product/{n}" for n in (101, 102, 103)]
+    source = make_source([
+        SourceRow(2, second, {"newPosition": "2", "parentId": collection}),
+        SourceRow(3, first, {"newPosition": "1", "parentId": collection}),
+    ], ["newPosition", "parentId"])
+    plan = UpdateResourcesPlanner(FakeSchema(), FakeRelationships()).plan(source)
+    assert not plan.errors, plan.errors
+    assert plan.mutations["collection_reorder"] == [{
+        "id": collection,
+        "moves": [
+            {"id": first, "newPosition": "1"},
+            {"id": second, "newPosition": "2"},
+        ],
+    }]
+    order = [first, second, third]
+    for move in plan.mutations["collection_reorder"][0]["moves"]:
+        order.remove(move["id"])
+        order.insert(int(move["newPosition"]), move["id"])
+    assert order == [first, third, second]

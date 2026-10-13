@@ -14,7 +14,7 @@ load_dotenv(ROOT_DIR / ".env")
 class Settings:
     root_dir: Path = ROOT_DIR
     shop: str = os.getenv("SHOPIFY_SHOP", "").strip()
-    api_version: str = os.getenv("SHOPIFY_API_VERSION", "2026-04").strip()
+    api_version: str = os.getenv("SHOPIFY_API_VERSION", "").strip()
     access_token: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "").strip()
     api_key: str = os.getenv("SHOPIFY_API_KEY", "").strip()
     api_secret: str = os.getenv("SHOPIFY_API_SECRET", "").strip()
@@ -63,6 +63,7 @@ class Settings:
         missing = []
         for env_name, value in (
             ("SHOPIFY_SHOP", self.shop_slug),
+            ("SHOPIFY_API_VERSION", self.api_version),
             ("SHOPIFY_ACCESS_TOKEN", self.access_token),
             ("SHOPIFY_API_KEY", self.api_key),
             ("SHOPIFY_API_SECRET", self.api_secret),

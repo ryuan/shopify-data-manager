@@ -11,6 +11,7 @@ from app.workflows.helpers import (
     resource_type,
     root_provenance,
     source_ref,
+    source_parent_id,
 )
 
 
@@ -36,9 +37,17 @@ class UpdateResourcesPlanner:
                 if any(
                     column in move_fields and parse_cell(raw).state == CellState.VALUE
                     for column, raw in row.values.items()
-                ) and parse_cell(row.values.get("productId")).state == CellState.UNCHANGED:
+                ) and parse_cell(row.values.get("parentId")).state == CellState.UNCHANGED and parse_cell(row.values.get("productId")).state == CellState.UNCHANGED:
                     media_ids.add(row.key)
         return media_ids
+
+    def collection_relationship_requirements(self, source: SourceData) -> set[str]:
+        return {
+            row.key for row in source.rows
+            if resource_type(row.key) == "Product"
+            and parse_cell(row.values.get("newPosition")).state != CellState.UNCHANGED
+            and parse_cell(row.values.get("parentId")).state == CellState.UNCHANGED
+        }
 
     def plan(self, source: SourceData, relationship_query=None) -> MutationPlan:
         plan = MutationPlan("update-resources", source, relationship_query=relationship_query)
@@ -47,10 +56,10 @@ class UpdateResourcesPlanner:
         variant_position_fields = self.schema.input_fields("ProductVariantPositionInput")
         file_fields = self.schema.input_fields("FileUpdateInput")
         move_fields = self.schema.input_fields("MoveInput")
-        collection_fields = self.schema.input_fields("CollectionInput")
+        collection_fields = self.schema.input_fields("CollectionUpdateInput")
 
         normal_fields_by_resource = {
-            "Product": set(product_fields) - {"id", "metafields"},
+            "Product": (set(product_fields) | {"newPosition"}) - {"id", "metafields"},
             "ProductVariant": (set(variant_fields) | set(variant_position_fields)) - {"id", "metafields"},
             "MediaImage": (set(file_fields) | set(move_fields)) - {"id"},
             "Collection": set(collection_fields) - {"id", "metafields"},
@@ -63,7 +72,7 @@ class UpdateResourcesPlanner:
                 field_resources.setdefault(field, set()).add(resource)
         globally_valid_fields = set(field_resources)
         metafield_owners = self._resolve_metafield_owners(source, plan)
-        supplied_product_ids = self._source_product_ids(source, plan)
+        supplied_parent_ids = self._source_parent_ids(source, plan)
 
         live_contexts: dict[str, dict[str, str | None]] = {}
         supported_rows = [
@@ -102,11 +111,30 @@ class UpdateResourcesPlanner:
         variant_order: list[str] = []
         media_order: list[str] = []
         row_by_id = {row.key: row for row in source.rows}
+        collection_move_requests: list[tuple[SourceRow, dict[str, Any]]] = []
 
         for row in source.rows:
             kind = resource_type(row.key)
             try:
                 if kind == "Product":
+                    position_cell = parse_cell(row.values.get("newPosition"))
+                    if position_cell.state != CellState.UNCHANGED:
+                        if position_cell.state != CellState.VALUE:
+                            raise ValueError(
+                                f"Source row {row.row_number}: newPosition must be a nonnegative integer."
+                            )
+                        try:
+                            position = coerce_cell(position_cell, move_fields["newPosition"], "newPosition")
+                            # Keep Shopify's introspected type for the final MoveInput.
+                            # Convert to int only for local position validation.
+                            numeric_position = int(position)
+                        except (ValueError, TypeError) as exc:
+                            raise ValueError(
+                                f"Source row {row.row_number}: invalid newPosition '{position_cell.value}'."
+                            ) from exc
+                        if numeric_position < 0:
+                            raise ValueError(f"Source row {row.row_number}: newPosition cannot be negative.")
+                        collection_move_requests.append((row, {"id": row.key, "newPosition": position}))
                     update, deletes = self._build_owner_update(
                         row, product_fields, "Product", globally_valid_fields,
                         field_resources, metafield_owners, plan,
@@ -125,7 +153,7 @@ class UpdateResourcesPlanner:
                     )
                     if update:
                         update["id"] = row.key
-                        collection_rows.append({"input": update})
+                        collection_rows.append({"collection": update})
                         collection_prov.append(root_provenance(row))
                     if deletes:
                         metafield_deletes.append({"metafields": deletes})
@@ -180,7 +208,7 @@ class UpdateResourcesPlanner:
         variant_parents = self._variant_product_contexts(
             variant_order,
             variant_ids,
-            supplied_product_ids,
+            supplied_parent_ids,
             live_contexts,
             query_candidates,
             row_by_id,
@@ -189,7 +217,7 @@ class UpdateResourcesPlanner:
         media_parents = self._media_product_contexts(
             media_order,
             media_ids,
-            supplied_product_ids,
+            supplied_parent_ids,
             query_candidates,
             relationship_query,
             row_by_id,
@@ -214,8 +242,7 @@ class UpdateResourcesPlanner:
             except Exception as exc:
                 plan.errors.append(f"Unable to validate MediaImage -> Product relationships: {exc}")
 
-        # These limits are defensive only. The workflow groups by one Shopify owner, so
-        # normal Froy products should remain far below Shopify's input-array cap.
+        # Enforce Shopify's input-array cap for each owner's metafield deletions.
         for delete_row in metafield_deletes:
             if len(delete_row.get("metafields") or []) > 250:
                 plan.errors.append(
@@ -232,43 +259,53 @@ class UpdateResourcesPlanner:
             media_order, media_moves, media_parents, plan, row_by_id
         )
 
+        collection_move_rows, collection_move_prov = self._collection_reorder(
+            collection_move_requests, relationship_query, plan
+        )
+
         plan.add("product_update", product_rows, product_prov)
         plan.add("variant_update", variant_update_rows, variant_update_prov)
         plan.add("variant_reorder", variant_reorder_rows, variant_reorder_prov)
         plan.add("file_update", file_rows, file_prov)
         plan.add("media_reorder", media_rows, media_prov)
         plan.add("collection_update", collection_rows, collection_prov)
+        plan.add("collection_reorder", collection_move_rows, collection_move_prov)
         plan.add("metafields_delete", metafield_deletes, delete_prov)
         if not plan.mutations and not plan.errors:
-            plan.errors.append("Source contains no recognized nonblank update values.")
+            if collection_move_requests:
+                plan.errors.append("All requested collection positions already match Shopify; no moves needed.")
+            else:
+                plan.errors.append("Source contains no recognized nonblank update values.")
         return plan
 
-    def _source_product_ids(self, source: SourceData, plan: MutationPlan) -> dict[str, str]:
+    def _source_parent_ids(self, source: SourceData, plan: MutationPlan) -> dict[str, str]:
         result: dict[str, str] = {}
         for row in source.rows:
-            cell = parse_cell(row.values.get("productId"))
-            if cell.state == CellState.UNCHANGED:
-                continue
             kind = resource_type(row.key)
-            if kind not in {"ProductVariant", "MediaImage"}:
+            has_helper = any(
+                parse_cell(row.values.get(name)).state != CellState.UNCHANGED
+                for name in ("parentId", "productId")
+            )
+            if not has_helper:
+                continue
+            if kind not in {"ProductVariant", "MediaImage", "Product"}:
                 plan.errors.append(
-                    f"Source row {row.row_number}: 'productId' is a parent-context helper only for "
-                    "ProductVariant and MediaImage rows."
+                    f"Source row {row.row_number}: parentId is not a helper for {kind} rows."
                 )
                 continue
-            if cell.state == CellState.CLEAR:
+            if kind == "Product" and parse_cell(row.values.get("newPosition")).state == CellState.UNCHANGED:
                 plan.errors.append(
-                    f"Source row {row.row_number}: 'productId' cannot be explicitly cleared; "
-                    "leave it blank to use relationship resolution."
+                    f"Source row {row.row_number}: parentId on Product rows is only for collection reordering."
                 )
                 continue
-            product_id = str(cell.value).strip()
-            if resource_type(product_id) != "Product":
-                plan.errors.append(
-                    f"Source row {row.row_number}: invalid productId '{product_id}'."
-                )
+            expected = "Collection" if kind == "Product" else "Product"
+            # A Product can be positioned in several collections, so its parent
+            # must be resolved per row, not cached by Product GID.
+            if kind == "Product":
                 continue
-            result[row.key] = product_id
+            parent = source_parent_id(row, expected, plan)
+            if parent:
+                result[row.key] = parent
         return result
 
     @staticmethod
@@ -291,7 +328,7 @@ class UpdateResourcesPlanner:
 
             if supplied and live and supplied != live:
                 plan.errors.append(
-                    f"Source row {row.row_number}: productId '{supplied}' conflicts with Shopify's current "
+                    f"Source row {row.row_number}: parentId '{supplied}' conflicts with Shopify's current "
                     f"ProductVariant parent '{live}' for '{variant_id}'."
                 )
             if len(query) > 1:
@@ -303,7 +340,7 @@ class UpdateResourcesPlanner:
                 query_product = next(iter(query))
                 if supplied and supplied != query_product:
                     plan.errors.append(
-                        f"Source row {row.row_number}: productId '{supplied}' conflicts with relationship query "
+                        f"Source row {row.row_number}: parentId '{supplied}' conflicts with relationship query "
                         f"Product '{query_product}' for '{variant_id}'."
                     )
                 if live and live != query_product:
@@ -340,7 +377,7 @@ class UpdateResourcesPlanner:
             if supplied:
                 if query and supplied not in query:
                     plan.errors.append(
-                        f"Source row {row.row_number}: productId '{supplied}' conflicts with relationship query "
+                        f"Source row {row.row_number}: parentId '{supplied}' conflicts with relationship query "
                         f"Product relationship(s) for '{media_id}': {', '.join(sorted(query))}."
                     )
                 resolved[media_id] = supplied
@@ -349,7 +386,7 @@ class UpdateResourcesPlanner:
             if len(query) > 1:
                 plan.errors.append(
                     f"Source row {row.row_number}: relationship query maps MediaImage '{media_id}' to multiple "
-                    f"Products: {', '.join(sorted(query))}. Supply productId to disambiguate."
+                    f"Products: {', '.join(sorted(query))}. Supply parentId to disambiguate."
                 )
                 continue
             if len(query) == 1:
@@ -363,7 +400,7 @@ class UpdateResourcesPlanner:
                     )
                 else:
                     plan.errors.append(
-                        f"Source row {row.row_number}: MediaImage '{media_id}' needs productId or a saved "
+                        f"Source row {row.row_number}: MediaImage '{media_id}' needs parentId or a saved "
                         "relationship query for media reordering."
                     )
         return resolved
@@ -402,7 +439,7 @@ class UpdateResourcesPlanner:
             cell = parse_cell(raw)
             if cell.state == CellState.UNCHANGED:
                 continue
-            if column == "productId":
+            if column in {"parentId", "productId"} or (resource == "Product" and column == "newPosition"):
                 continue
             if is_metafield_column(column):
                 owners = metafield_owners.get(column, set())
@@ -452,7 +489,7 @@ class UpdateResourcesPlanner:
             cell = parse_cell(raw)
             if cell.state == CellState.UNCHANGED:
                 continue
-            if column == "productId":
+            if column in {"parentId", "productId"}:
                 continue
             if is_metafield_column(column):
                 owners = metafield_owners.get(column, set())
@@ -522,7 +559,7 @@ class UpdateResourcesPlanner:
             cell = parse_cell(raw)
             if cell.state == CellState.UNCHANGED:
                 continue
-            if column == "productId":
+            if column in {"parentId", "productId"}:
                 continue
             if is_metafield_column(column):
                 owners = metafield_owners.get(column, set())
@@ -610,3 +647,119 @@ class UpdateResourcesPlanner:
             payloads.append({"id": product_id, "moves": moves})
             provenance.append({"sourceRows": refs, "items": {"moves": refs}})
         return payloads, provenance
+
+    def _collection_reorder(
+        self, requests: list[tuple[SourceRow, dict[str, Any]]],
+        relationship_query, plan: MutationPlan,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if not requests:
+            return [], []
+        candidates: dict[str, set[str]] = {}
+        if relationship_query:
+            try:
+                candidates = self.relationships.collection_candidates_from_query(
+                    relationship_query, {move["id"] for _, move in requests}
+                )
+            except Exception as exc:
+                plan.errors.append(f"Unable to read collection relationships from query: {exc}")
+
+        grouped: dict[str, list[tuple[SourceRow, dict[str, Any]]]] = {}
+        for row, move in requests:
+            # Product-to-Collection is many-to-many. Explicit context is per source
+            # row, unlike variants and media which have one parent per resource ID.
+            parent = source_parent_id(row, "Collection", plan)
+            matches = candidates.get(row.key, set())
+            if parent:
+                if matches and parent not in matches:
+                    plan.errors.append(
+                        f"Source row {row.row_number}: parentId '{parent}' conflicts with saved-query "
+                        f"collection membership for Product '{row.key}'."
+                    )
+                # No query membership required when supplied explicitly. Live membership is checked below.
+            elif len(matches) == 1:
+                parent = next(iter(matches))
+            elif len(matches) > 1:
+                plan.errors.append(
+                    f"Source row {row.row_number}: Product '{row.key}' belongs to multiple queried "
+                    "Collections; supply parentId."
+                )
+            else:
+                plan.errors.append(
+                    f"Source row {row.row_number}: Product '{row.key}' needs parentId or a "
+                    "saved Collection -> Product relationship query."
+                )
+            if parent:
+                grouped.setdefault(parent, []).append((row, move))
+
+        try:
+            contents = self.relationships.collection_contents(grouped) if grouped else {}
+        except Exception as exc:
+            plan.errors.append(f"Unable to validate live collection membership and order: {exc}")
+            return [], []
+
+        rows: list[dict[str, Any]] = []
+        provenance: list[dict[str, Any]] = []
+        for collection_id, entries in grouped.items():
+            state = contents.get(collection_id)
+            if not state:
+                plan.errors.append(
+                    f"Collection '{collection_id}' does not exist or is not accessible."
+                )
+                continue
+            if state.get("sortOrder") != "MANUAL":
+                plan.errors.append(
+                    f"Collection '{collection_id}' must have sortOrder MANUAL to reorder products."
+                )
+                continue
+            live_order = list(state["products"])
+            seen_products: set[str] = set()
+            seen_positions: set[int] = set()
+            for row, move in entries:
+                product_id = move["id"]
+                position = int(move["newPosition"])
+                if product_id not in live_order:
+                    plan.errors.append(
+                        f"Source row {row.row_number}: Product '{product_id}' is not in "
+                        f"Collection '{collection_id}'."
+                    )
+                if position >= len(live_order):
+                    plan.errors.append(
+                        f"Source row {row.row_number}: newPosition {position} is outside the "
+                        f"Collection's {len(live_order)} products."
+                    )
+                if product_id in seen_products:
+                    plan.errors.append(
+                        f"Source row {row.row_number}: duplicate Product '{product_id}' "
+                        f"for Collection '{collection_id}'."
+                    )
+                if position in seen_positions:
+                    plan.errors.append(
+                        f"Source row {row.row_number}: duplicate newPosition {position} "
+                        f"in Collection '{collection_id}'."
+                    )
+                seen_products.add(product_id)
+                seen_positions.add(position)
+            if any(item["id"] not in live_order or int(item["newPosition"]) >= len(live_order) for _, item in entries):
+                continue
+            entries.sort(key=lambda pair: int(pair[1]["newPosition"]))
+            moves: list[dict[str, Any]] = []
+            moved_rows: list[SourceRow] = []
+            for row, item in entries:
+                position = int(item["newPosition"])
+                if live_order.index(item["id"]) == position:
+                    continue
+                live_order.remove(item["id"])
+                live_order.insert(position, item["id"])
+                # The move was already coerced against MoveInput during row parsing.
+                # Only local simulation uses an integer representation.
+                moves.append(item)
+                moved_rows.append(row)
+            if len(moves) > 250:
+                plan.errors.append(
+                    f"Collection '{collection_id}' requests {len(moves)} moves; max 250 per mutation."
+                )
+            if moves:
+                rows.append({"id": collection_id, "moves": moves})
+                refs = [source_ref(row) for row in moved_rows]
+                provenance.append({"sourceRows": refs, "items": {"moves": refs}})
+        return rows, provenance

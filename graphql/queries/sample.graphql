@@ -1,0 +1,22 @@
+# Generic bulk query. Copy this file to customize it for your store.
+# Custom query definitions and generated results are ignored by Git.
+{
+  products {
+    edges {
+      node {
+        id
+        title
+        handle
+        variants {
+          edges {
+            node {
+              id
+              sku
+              price
+            }
+          }
+        }
+      }
+    }
+  }
+}
