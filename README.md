@@ -2,7 +2,7 @@
 
 A schema-driven CLI for bulk querying, validating, and updating Shopify catalog data from XLSX/CSV files.
 
-Shopify Data Manager is designed for catalog workflows where the desired data has already been prepared manually, in Excel, or by another data-processing program. It supports updating existing products, variants, media, collections, and metafields, as well as creating new products and adding variants to existing products.
+Shopify Data Manager is designed for catalog workflows where the desired data has already been prepared manually, in Excel, or by another data-processing program. It supports updating and deleting products, variants, media images, collections, and URL redirects. It also supports updating metafields, creating new products, and adding variants to existing products.
 
 The program separates mutation preparation from Shopify execution. Source data is validated against Shopify's current schema and resource relationships, mutation JSONL is generated into a reviewable working directory, and nothing is written to Shopify until the user explicitly chooses to execute it.
 
@@ -47,7 +47,7 @@ Bulk queries are independent from mutation workflows and are retained under `que
 
 ## Key Features
 
-- Mixed Product, ProductVariant, MediaImage, and Collection updates from one source file.
+- Mixed Product, ProductVariant, MediaImage, Collection, and UrlRedirect updates from one source file.
 - Shopify schema introspection for valid fields, input types, and value coercion.
 - Product-, Variant-, and Collection-level metafield updates through their owning resource mutations.
 - Explicit metafield deletion without performing Shopify writes during mutation preparation.
@@ -129,7 +129,8 @@ The interactive menu provides:
 [2] Create variants for existing products
 [3] Create products and their variants
 [4] Execute current working mutation
-[5] Exit
+[5] Delete existing resources
+[6] Exit
 ```
 
 ## Mutation Workflows
@@ -144,6 +145,7 @@ One source file can mix:
 - ProductVariant
 - MediaImage
 - Collection
+- UrlRedirect
 
 The Shopify GID identifies the resource type, and the source columns determine which mutation operations are needed.
 
@@ -157,12 +159,15 @@ MediaImage fields                    -> fileUpdate
 Media positions                      -> productReorderMedia
 Collection fields / metafields       -> collectionUpdate
 Product positions in Collections     -> collectionReorderProducts
+URL redirect path / target           -> urlRedirectUpdate
 Metafield clears                     -> metafieldsDelete
 ```
 
 Normal metafield values remain inside the owning Product, Variant, or Collection mutation rather than being routed through `metafieldsSet`.
 
 Collection product moves are grouped into one mutation per Collection and sorted by ascending `newPosition`; Shopify applies moves sequentially, so later moves may shift products moved earlier.
+
+For URL redirects, supply a new `path`, `target`, or both. Blank cells leave the corresponding value unchanged. Explicit clear values are rejected.
 
 ### Create Variants for Existing Products
 
@@ -175,6 +180,12 @@ Rows are grouped by Product and created through `productVariantsBulkCreate` usin
 The source key is `sku`.
 
 Rows are grouped into Products by `title` and created through `productSet`. The workflow separates Product and Variant fields, aggregates media, builds Product options, and checks repeated Product-level values across Variant rows for conflicts.
+
+### Delete Existing Resources
+
+Put one unique Shopify GID per row in the `id` column and leave all other columns blank. A single file can mix Product, ProductVariant, MediaImage, Collection, and UrlRedirect IDs.
+
+The workflow validates the IDs in Shopify and resolves variant parents automatically. If you list a Product ID, omit IDs for its variants. A MediaImage deletion uses `fileDelete` to delete the Shopify file itself. Deletions follow the same `working/` preview and explicit execution flow as updates.
 
 ## Source Values and Relationships
 
@@ -263,6 +274,7 @@ app/
         update_resources.py
         create_variants.py
         create_products.py
+        delete_resources.py
 
 graphql/queries/        # public sample.graphql and ignored local query definitions
 graphql/mutations/      # required reusable mutation definitions
