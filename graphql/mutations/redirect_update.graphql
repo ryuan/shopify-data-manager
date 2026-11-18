@@ -1,0 +1,6 @@
+mutation UrlRedirectUpdate($id: ID!, $urlRedirect: UrlRedirectInput!) {
+  urlRedirectUpdate(id: $id, urlRedirect: $urlRedirect) {
+    urlRedirect { id path target }
+    userErrors { field message }
+  }
+}

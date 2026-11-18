@@ -15,6 +15,17 @@ from app.workflows.helpers import (
 )
 
 
+REDIRECT_QUERY = r"""
+query UrlRedirect($id: ID!) {
+  urlRedirect(id: $id) {
+    id
+    path
+    target
+  }
+}
+"""
+
+
 OWNER_TYPE_BY_RESOURCE = {
     "Product": "PRODUCT",
     "ProductVariant": "PRODUCTVARIANT",
@@ -57,12 +68,14 @@ class UpdateResourcesPlanner:
         file_fields = self.schema.input_fields("FileUpdateInput")
         move_fields = self.schema.input_fields("MoveInput")
         collection_fields = self.schema.input_fields("CollectionUpdateInput")
+        redirect_fields = self.schema.input_fields("UrlRedirectInput")
 
         normal_fields_by_resource = {
             "Product": (set(product_fields) | {"newPosition"}) - {"id", "metafields"},
             "ProductVariant": (set(variant_fields) | set(variant_position_fields)) - {"id", "metafields"},
             "MediaImage": (set(file_fields) | set(move_fields)) - {"id"},
             "Collection": set(collection_fields) - {"id", "metafields"},
+            "UrlRedirect": set(redirect_fields) - {"id"},
         }
         if "sku" in variant_fields or "inventoryItem" in variant_fields:
             normal_fields_by_resource["ProductVariant"].add("sku")
@@ -73,6 +86,14 @@ class UpdateResourcesPlanner:
         globally_valid_fields = set(field_resources)
         metafield_owners = self._resolve_metafield_owners(source, plan)
         supplied_parent_ids = self._source_parent_ids(source, plan)
+        redirect_ids = [row.key for row in source.rows if resource_type(row.key) == "UrlRedirect"]
+        for redirect_id in redirect_ids:
+            try:
+                result = self.relationships.client.execute(REDIRECT_QUERY, {"id": redirect_id})
+                if not (result.get("urlRedirect") or {}).get("id") == redirect_id:
+                    plan.errors.append(f"Shopify UrlRedirect '{redirect_id}' does not exist or is not accessible.")
+            except Exception as exc:
+                plan.errors.append(f"Unable to validate Shopify UrlRedirect '{redirect_id}': {exc}")
 
         live_contexts: dict[str, dict[str, str | None]] = {}
         supported_rows = [
@@ -101,6 +122,8 @@ class UpdateResourcesPlanner:
         product_prov: list[dict[str, Any]] = []
         collection_rows: list[dict[str, Any]] = []
         collection_prov: list[dict[str, Any]] = []
+        redirect_rows: list[dict[str, Any]] = []
+        redirect_prov: list[dict[str, Any]] = []
         file_rows: list[dict[str, Any]] = []
         file_prov: list[dict[str, Any]] = []
         variant_updates: dict[str, dict[str, Any]] = {}
@@ -158,6 +181,13 @@ class UpdateResourcesPlanner:
                     if deletes:
                         metafield_deletes.append({"metafields": deletes})
                         delete_prov.append(root_provenance(row))
+                elif kind == "UrlRedirect":
+                    update = self._build_redirect_update(
+                        row, redirect_fields, globally_valid_fields, field_resources, plan,
+                    )
+                    if update:
+                        redirect_rows.append({"id": row.key, "urlRedirect": update})
+                        redirect_prov.append(root_provenance(row))
                 elif kind == "ProductVariant":
                     variant_order.append(row.key)
                     update, position, deletes = self._build_variant_update(
@@ -189,7 +219,7 @@ class UpdateResourcesPlanner:
                 else:
                     plan.errors.append(
                         f"Source row {row.row_number}: unsupported resource ID '{row.key}'. "
-                        "Supported update resources are Product, ProductVariant, MediaImage, and Collection."
+                        "Supported update resources are Product, ProductVariant, MediaImage, Collection, and UrlRedirect."
                     )
             except ValueError as exc:
                 plan.errors.append(str(exc))
@@ -269,6 +299,7 @@ class UpdateResourcesPlanner:
         plan.add("file_update", file_rows, file_prov)
         plan.add("media_reorder", media_rows, media_prov)
         plan.add("collection_update", collection_rows, collection_prov)
+        plan.add("redirect_update", redirect_rows, redirect_prov)
         plan.add("collection_reorder", collection_move_rows, collection_move_prov)
         plan.add("metafields_delete", metafield_deletes, delete_prov)
         if not plan.mutations and not plan.errors:
@@ -471,6 +502,34 @@ class UpdateResourcesPlanner:
             except ValueError as exc:
                 raise ValueError(f"Source row {row.row_number}: {exc}") from exc
         return result, deletes
+
+    def _build_redirect_update(
+        self,
+        row: SourceRow,
+        fields: dict[str, dict[str, Any]],
+        globally_valid_fields: set[str],
+        field_resources: dict[str, set[str]],
+        plan: MutationPlan,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for column, raw in row.values.items():
+            cell = parse_cell(raw)
+            if cell.state == CellState.UNCHANGED:
+                continue
+            if column not in fields or column == "id":
+                if column in globally_valid_fields:
+                    self._warn_field_mismatch(row, "UrlRedirect", column, field_resources, plan)
+                    continue
+                raise ValueError(
+                    f"Source row {row.row_number}: column '{column}' is not a valid update field for any supported resource."
+                )
+            if cell.state != CellState.VALUE:
+                raise ValueError(f"Source row {row.row_number}: {column} cannot be cleared.")
+            try:
+                result[column] = coerce_cell(cell, fields[column], column)
+            except ValueError as exc:
+                raise ValueError(f"Source row {row.row_number}: {exc}") from exc
+        return result
 
     def _build_variant_update(
         self,

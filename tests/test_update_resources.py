@@ -24,6 +24,7 @@ class FakeSchema:
             "ProductVariantPositionInput": {"id": scalar("ID"), "position": scalar("Int")},
             "FileUpdateInput": {"id": scalar("ID"), "alt": scalar()},
             "MoveInput": {"id": scalar("ID"), "newPosition": scalar("UnsignedInt64")},
+            "UrlRedirectInput": {"path": scalar(), "target": scalar()},
             "CollectionUpdateInput": {
                 "id": scalar("ID"),
                 "templateSuffix": scalar(),

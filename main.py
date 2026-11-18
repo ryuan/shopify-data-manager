@@ -11,6 +11,7 @@ from app.shopify.schema import SchemaInspector
 from app.workflows.create_products import CreateProductsPlanner
 from app.workflows.create_variants import CreateVariantsPlanner
 from app.workflows.update_resources import UpdateResourcesPlanner
+from app.workflows.delete_resources import DeleteResourcesPlanner
 
 MENU = [
     "Run bulk query",
@@ -18,6 +19,7 @@ MENU = [
     "Create variants for existing products",
     "Create products and their variants",
     "Execute current working mutation",
+    "Delete existing resources",
     "Exit",
 ]
 
@@ -80,7 +82,7 @@ def main() -> None:
             except (KeyboardInterrupt, EOFError):
                 print()
                 break
-            if action == 5:
+            if action == 6:
                 break
 
             try:
@@ -123,6 +125,12 @@ def main() -> None:
                 elif action == 4:
                     show_current_working(settings)
                     ws.execute_working()
+
+                elif action == 5:
+                    ws.clear_working()
+                    source = load_source(settings.source_dir, expected_key="id")
+                    plan = DeleteResourcesPlanner(schema_service, relationship_service).plan(source)
+                    handle_plan(plan, ws)
 
             except (KeyboardInterrupt, EOFError):
                 print("\nAction canceled.")

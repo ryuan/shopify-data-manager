@@ -1,0 +1,6 @@
+mutation FileDelete($fileIds: [ID!]!) {
+  fileDelete(fileIds: $fileIds) {
+    deletedFileIds
+    userErrors { field message }
+  }
+}

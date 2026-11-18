@@ -1,0 +1,6 @@
+mutation UrlRedirectDelete($id: ID!) {
+  urlRedirectDelete(id: $id) {
+    deletedUrlRedirectId
+    userErrors { field message }
+  }
+}

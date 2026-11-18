@@ -32,6 +32,12 @@ SPECS: dict[str, MutationSpec] = {
     "metafields_delete": MutationSpec("metafields_delete", "metafields_delete.graphql", "metafieldsDelete"),
     "create_variants": MutationSpec("create_variants", "create_variants.graphql", "productVariantsBulkCreate"),
     "create_products": MutationSpec("create_products", "create_products.graphql", "productSet"),
+    "redirect_update": MutationSpec("redirect_update", "redirect_update.graphql", "urlRedirectUpdate"),
+    "product_delete": MutationSpec("product_delete", "product_delete.graphql", "productDelete"),
+    "variant_delete": MutationSpec("variant_delete", "variant_delete.graphql", "productVariantsBulkDelete"),
+    "file_delete": MutationSpec("file_delete", "file_delete.graphql", "fileDelete"),
+    "collection_delete": MutationSpec("collection_delete", "collection_delete.graphql", "collectionDelete"),
+    "redirect_delete": MutationSpec("redirect_delete", "redirect_delete.graphql", "urlRedirectDelete"),
 }
 
 EXECUTION_ORDER = [
@@ -45,6 +51,12 @@ EXECUTION_ORDER = [
     "metafields_delete",
     "create_variants",
     "create_products",
+    "redirect_update",
+    "variant_delete",
+    "file_delete",
+    "collection_delete",
+    "redirect_delete",
+    "product_delete",
 ]
 
 RUN_BULK_QUERY = r"""
